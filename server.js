@@ -42,6 +42,9 @@ const SALA_OCIOSA_MS = 6 * 60 * 60 * 1000;   // apaga sala parada há 6 h
 
 /* ---------- jogos conhecidos ---------- */
 // min/max de equipes e os tipos de jogada aceitos (null = qualquer tipo)
+// privados: tipos de jogada que só o professor e a própria equipe recebem (os
+//           outros recebem a jogada sem os dados, para a numeração seguir contínua)
+// maxDados: tamanho máximo de uma jogada nesse jogo (padrão MAX_DADOS)
 const JOGOS = {
   morte: { min: 2, max: 4, tipos: null },
   aterosclerose: { min: 2, max: 4, tipos: null },
@@ -50,6 +53,8 @@ const JOGOS = {
   lesoes: { min: 2, max: 4, tipos: null },
   organelas: { min: 2, max: 4, tipos: null },
   pielonefrite: { min: 2, max: 4, tipos: null },
+  replicacao: { min: 2, max: 4, tipos: null },
+  investigacao: { min: 1, max: 12, tipos: null, privados: ["resp"], maxDados: 6000 },
   teste: { min: 1, max: 4, tipos: null },
 };
 
@@ -88,13 +93,23 @@ function vistaSala(sala) {
 }
 function avisarSala(sala) { io.to(sala.codigo).emit("sala", vistaSala(sala)); }
 
-/* tudo que um aparelho precisa para refazer a partida */
-function pacotePartida(sala) {
+/* jogada privada vista por quem não é o professor nem a equipe autora */
+const ocultar = (j) => ({ seq: j.seq, seat: j.seat, tipo: j.tipo, dados: null, oculto: true });
+/* o registro de jogadas que um aparelho pode ver (seat = null → professor, vê tudo) */
+function logPara(sala, seat, desde) {
+  const log = desde ? sala.log.slice(desde) : sala.log;
+  if (seat == null) return log;
+  return log.map((j) => (j.privada && j.seat !== seat ? ocultar(j) : j));
+}
+const seatDe = (socket) => (socket.data.papel === "prof" ? null : socket.data.seat);
+
+/* tudo que um aparelho precisa para refazer a partida (seat = null → professor) */
+function pacotePartida(sala, seat) {
   return {
     seed: sala.seed,
     jogadores: sala.jogadores,        // nomes na ordem dos lugares fixada no início
     config: sala.config,
-    log: sala.log,
+    log: logPara(sala, seat),
     placar: sala.placar,
   };
 }
@@ -172,7 +187,7 @@ io.on("connection", (socket) => {
     responder(ack, {
       ok: true,
       sala: vistaSala(sala),
-      partida: sala.status === "lobby" ? null : pacotePartida(sala),
+      partida: sala.status === "lobby" ? null : pacotePartida(sala, null),
     });
     avisarSala(sala);
   });
@@ -229,7 +244,7 @@ io.on("connection", (socket) => {
     sala.equipes.forEach((e) => {
       if (e.socketId) io.to(e.socketId).emit("seu-lugar", { seat: e.seat });
     });
-    io.to(sala.codigo).emit("inicio", pacotePartida(sala));
+    io.to(sala.codigo).emit("inicio", pacotePartida(sala, null));   // registro vazio: igual para todos
     avisarSala(sala);
   });
 
@@ -318,7 +333,7 @@ io.on("connection", (socket) => {
       nome: e.nome,
       token: e.token,
       sala: vistaSala(sala),
-      partida: sala.status === "lobby" ? null : pacotePartida(sala),
+      partida: sala.status === "lobby" ? null : pacotePartida(sala, e.seat),
     });
     avisarSala(sala);
   });
@@ -334,7 +349,7 @@ io.on("connection", (socket) => {
     if (typeof tipo !== "string" || !tipo || tipo.length > 40) return responder(ack, { ok: false, erro: "Jogada inválida." });
     const def = JOGOS[sala.jogo];
     if (def.tipos && !def.tipos.includes(tipo)) return responder(ack, { ok: false, erro: "Jogada desconhecida." });
-    if (tamanhoJson(dados) > MAX_DADOS) return responder(ack, { ok: false, erro: "Jogada grande demais." });
+    if (tamanhoJson(dados) > (def.maxDados || MAX_DADOS)) return responder(ack, { ok: false, erro: "Jogada grande demais." });
     if (sala.log.length >= MAX_JOGADAS) return responder(ack, { ok: false, erro: "Limite de jogadas da partida." });
 
     const jogada = {
@@ -343,10 +358,17 @@ io.on("connection", (socket) => {
       tipo,
       dados: dados === undefined ? null : dados,
     };
+    const privada = !!(def.privados && def.privados.includes(tipo) && jogada.seat !== -1);
+    if (privada) Object.defineProperty(jogada, "privada", { value: true, enumerable: false });
     sala.log.push(jogada);
     tocar(sala);
     responder(ack, { ok: true, seq: jogada.seq });
-    io.to(sala.codigo).emit("acao", jogada);
+    if (!privada) { io.to(sala.codigo).emit("acao", jogada); return; }
+    // privada: completa só para o professor e a equipe autora; os demais recebem sem os dados
+    if (sala.profSocket) io.to(sala.profSocket).emit("acao", jogada);
+    sala.equipes.forEach((e) => {
+      if (e.socketId) io.to(e.socketId).emit("acao", e.seat === jogada.seat ? jogada : ocultar(jogada));
+    });
   });
 
   // aparelho percebeu que pulou alguma jogada: pede o que falta
@@ -355,7 +377,7 @@ io.on("connection", (socket) => {
     if (!sala) return responder(ack, { ok: false, erro: "Fora da sala." });
     if (sala.status === "lobby") return responder(ack, { ok: true, partida: null });
     const d = Math.max(0, Number(desde) || 0);
-    responder(ack, { ok: true, seed: sala.seed, jogadores: sala.jogadores, config: sala.config, log: sala.log.slice(d), desde: d });
+    responder(ack, { ok: true, seed: sala.seed, jogadores: sala.jogadores, config: sala.config, log: logPara(sala, seatDe(socket), d), desde: d });
   });
 
   /* ----- protocolo antigo (teste-multiplayer.html) ----- */
