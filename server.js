@@ -44,6 +44,12 @@ const SALA_OCIOSA_MS = 6 * 60 * 60 * 1000;   // apaga sala parada há 6 h
 // min/max de equipes e os tipos de jogada aceitos (null = qualquer tipo)
 const JOGOS = {
   morte: { min: 2, max: 4, tipos: null },
+  aterosclerose: { min: 2, max: 4, tipos: null },
+  ampulheta: { min: 2, max: 4, tipos: null },
+  hallmarks: { min: 2, max: 4, tipos: null },
+  lesoes: { min: 2, max: 4, tipos: null },
+  organelas: { min: 2, max: 4, tipos: null },
+  pielonefrite: { min: 2, max: 4, tipos: null },
   teste: { min: 1, max: 4, tipos: null },
 };
 
