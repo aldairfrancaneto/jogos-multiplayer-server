@@ -21,6 +21,7 @@ const crypto = require("crypto");
    ============================================================ */
 
 const http = createServer((req, res) => res.end("ok"));
+// v2.1 (24/out/2026): jogo "uninogwarts" (dupla de aventura) e o repasse "eco"
 
 const io = new Server(http, {
   cors: {
@@ -55,6 +56,7 @@ const JOGOS = {
   pielonefrite: { min: 2, max: 4, tipos: null },
   replicacao: { min: 2, max: 4, tipos: null },
   investigacao: { min: 1, max: 12, tipos: null, privados: ["resp"], maxDados: 6000 },
+  uninogwarts: { min: 1, max: 1, tipos: null, eco: 60000 },   // dupla de aventura: quem cria a sala + 1 amigo
   teste: { min: 1, max: 4, tipos: null },
 };
 
@@ -378,6 +380,19 @@ io.on("connection", (socket) => {
     if (sala.status === "lobby") return responder(ack, { ok: true, partida: null });
     const d = Math.max(0, Number(desde) || 0);
     responder(ack, { ok: true, seed: sala.seed, jogadores: sala.jogadores, config: sala.config, log: logPara(sala, seatDe(socket), d), desde: d });
+  });
+
+  /* ----- eco: repasse direto, sem registro (jogos em tempo real) -----
+     Para o que muda o tempo todo (posição dos personagens, relógio, imagem do simulador): o servidor só
+     entrega aos OUTROS aparelhos da sala, sem guardar nada e sem numerar. Só nos jogos com "eco" no JOGOS
+     (o número é o tamanho máximo de uma mensagem). */
+  socket.on("eco", (dados) => {
+    const sala = salaAtual();
+    if (!sala) return;
+    const lim = JOGOS[sala.jogo] && JOGOS[sala.jogo].eco;
+    if (!lim || tamanhoJson(dados) > lim) return;
+    tocar(sala);
+    socket.to(sala.codigo).emit("eco", { seat: socket.data.papel === "prof" ? -1 : socket.data.seat, dados });
   });
 
   /* ----- protocolo antigo (teste-multiplayer.html) ----- */
