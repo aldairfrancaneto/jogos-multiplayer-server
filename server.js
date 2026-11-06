@@ -51,6 +51,7 @@ const JOGOS = {
   aterosclerose: { min: 2, max: 4, tipos: null },
   ampulheta: { min: 2, max: 4, tipos: null },
   hallmarks: { min: 2, max: 4, tipos: null },
+  "hallmarks-cancer": { min: 2, max: 4, tipos: null },
   lesoes: { min: 2, max: 4, tipos: null },
   organelas: { min: 2, max: 4, tipos: null },
   pielonefrite: { min: 2, max: 4, tipos: null },
